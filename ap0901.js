@@ -19,7 +19,7 @@ const PARAMS = {
     pipe: 0x00FF00
   },
   sizes: {
-    mario: { width: 0.5, height: 1 },
+    mario: { width: 0.4, height: 1 },
     ground: { width: 100, height: 2 },
     coin: { radius: 0.2 },
     block: { size: 0.5 },
@@ -38,7 +38,7 @@ const PARAMS = {
   },
   game: {
     totalCoins: 10,
-    goalPosition: 30
+    goalPosition: 33
   }
 };
 
@@ -74,47 +74,57 @@ class Coin {
 // ブロッククラス
 class Block {
   constructor(position, isQuestionBlock = false) {
-      // テクスチャの設定
-      let texture;
-      if (isQuestionBlock) {
-          texture = new THREE.TextureLoader().load('img/locky.png');
-      } else {
-          texture = new THREE.TextureLoader().load('img/block.png');
-      }
+    // 色の定義
+    const blockColors = {
+      question: 0xFFD700, // 金色 (はてなブロック)
+      normal: 0x8B4513,  // 茶色 (通常ブロック)
+      empty: 0x808080    // グレー (使用済みはてなブロック)
+    };
 
-      this.mesh = new THREE.Mesh(
-          new THREE.BoxGeometry(
-              PARAMS.sizes.block.size,
-              PARAMS.sizes.block.size,
-              PARAMS.sizes.block.size
-          ),
-          new THREE.MeshPhongMaterial({ map: texture })
-      );
-      this.mesh.position.copy(position);
-      this.isQuestionBlock = isQuestionBlock;
-      if (isQuestionBlock) {
-          this.originalY = position.y;
-          this.bounceTime = 0;
-          this.bounceHeight = 0.1;
-          this.hasItem = true;
-      }
+    this.mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(
+        PARAMS.sizes.block.size,
+        PARAMS.sizes.block.size,
+        PARAMS.sizes.block.size
+      ),
+      new THREE.MeshPhongMaterial({ 
+        color: isQuestionBlock ? blockColors.question : blockColors.normal,
+        shininess: isQuestionBlock ? 100 : 30 // はてなブロックは光沢を強く
+      })
+    );
+    
+    this.mesh.position.copy(position);
+    this.isQuestionBlock = isQuestionBlock;
+    if (isQuestionBlock) {
+      this.originalY = position.y;
+      this.bounceTime = 0;
+      this.bounceHeight = 0.1;
+      this.hasItem = true;
+      
+      // はてなブロックのエッジを強調
+      this.mesh.material.metalness = 0.7;
+      this.mesh.material.roughness = 0.2;
+    }
   }
+
   break() {
     if (!this.broken) {
-        if (this.isQuestionBlock && this.hasItem) {
-            // はてなブロックの場合、テクスチャを変更
-            this.hasItem = false;
-            const emptyTexture = new THREE.TextureLoader().load('img/re.jpg');
-            this.mesh.material.map = emptyTexture;
-            this.mesh.material.needsUpdate = true;
-        } else if (!this.isQuestionBlock) {
-            // 通常のブロックは非表示に
-            this.broken = true;
-            this.mesh.visible = false;
-        }
+      if (this.isQuestionBlock && this.hasItem) {
+        this.hasItem = false;
+        // 使用済みはてなブロックの色に変更
+        this.mesh.material.color.setHex(0x808080);
+        this.mesh.material.shininess = 10;
+        this.mesh.material.metalness = 0;
+        this.mesh.material.roughness = 0.9;
+        this.mesh.material.needsUpdate = true;
+      } else if (!this.isQuestionBlock) {
+        this.broken = true;
+        this.mesh.visible = false;
+      }
     }
+  }
 }
-}
+
 
 
 
@@ -123,41 +133,34 @@ class Pipe {
   constructor(position) {
     this.mesh = new THREE.Group();
 
-    // メインの筒部分
     const mainGeometry = new THREE.CylinderGeometry(
-      PARAMS.sizes.pipe.width / 2,           // 上部の半径
-      PARAMS.sizes.pipe.width / 2,           // 下部の半径
-      PARAMS.sizes.pipe.height,              // 高さ
-      32,                                    // 分割数
-      1,                                     // 高さ方向の分割数
-      true                                   // 開いた円柱（上下が空洞）
+      PARAMS.sizes.pipe.width / 2,
+      PARAMS.sizes.pipe.width / 2,
+      PARAMS.sizes.pipe.height,
+      32,
+      1,
+      true
     );
     const mainMaterial = new THREE.MeshPhongMaterial({
       color: PARAMS.colors.pipe,
-      side: THREE.DoubleSide                 // 内側も描画
+      side: THREE.DoubleSide
     });
     const mainPipe = new THREE.Mesh(mainGeometry, mainMaterial);
 
-    // 上部の縁
     const topGeometry = new THREE.CylinderGeometry(
-      (PARAMS.sizes.pipe.width / 2) + PARAMS.sizes.pipe.thickness,  // 上部の半径（メインより太い）
-      (PARAMS.sizes.pipe.width / 2) + PARAMS.sizes.pipe.thickness,  // 下部の半径
-      PARAMS.sizes.pipe.topHeight,           // 高さ
-      32                                     // 分割数
+      (PARAMS.sizes.pipe.width / 2) + PARAMS.sizes.pipe.thickness,
+      (PARAMS.sizes.pipe.width / 2) + PARAMS.sizes.pipe.thickness,
+      PARAMS.sizes.pipe.topHeight,
+      32
     );
     const topPipe = new THREE.Mesh(topGeometry, mainMaterial);
 
-    // 位置調整
     mainPipe.position.y = PARAMS.sizes.pipe.height / 2;
-    topPipe.position.y = PARAMS.sizes.pipe.height;
+    topPipe.position.y = PARAMS.sizes.pipe.height/1.1;
 
-    // グループに追加
     this.mesh.add(mainPipe);
     this.mesh.add(topPipe);
-
-    // 全体の位置を設定
     this.mesh.position.copy(position);
-
   }
 }
 
@@ -169,6 +172,7 @@ class Mario {
     this.mesh = new THREE.Group();
     this.velocity = new THREE.Vector3();
     this.isJumping = false;
+    this.isMoving = false;
     this.createMario();
   }
 
@@ -228,6 +232,7 @@ class World {
     this.createGoal();
     this.coins = [];
     this.blocks = [];
+    this.pipes = [];
     this.createLevel();
   }
 
@@ -272,39 +277,140 @@ class World {
 
   createLevel() {
     // コインを配置
+    const CoinInstances = [];
     const coinPosition = [
-      new THREE.Vector3(6, 4, 0)
+      new THREE.Vector3(11, 2, 0),
+      new THREE.Vector3(13, 2, 0),
+
+      new THREE.Vector3(19, 3.75, 0),
+      new THREE.Vector3(19.5, 3.75, 0),
+      new THREE.Vector3(20, 3.75, 0),
+      new THREE.Vector3(20.5, 3.75, 0),
+      new THREE.Vector3(21, 3.75, 0),
+      new THREE.Vector3(21.5, 3.75, 0),
+      new THREE.Vector3(19, 4.25, 0),
+      new THREE.Vector3(19.5, 4.25, 0),
+      new THREE.Vector3(20, 4.25, 0),
+      new THREE.Vector3(20.5, 4.25, 0),
+      new THREE.Vector3(21, 4.25, 0),
+      new THREE.Vector3(21.5, 4.25, 0),
     ];
 
     coinPosition.forEach(position => {
       const coin = new Coin(position);
       this.coins.push(coin);
       this.scene.add(coin.mesh);
-    }
-    )
+    });
+
+    this.scene.add(...CoinInstances);
+    
 
     // 没
-    const pipe = new Pipe(new THREE.Vector3(10, -10, 0));
-    this.scene.add(pipe.mesh);
+    const pipePositions = [
+      new THREE.Vector3(12, -0.15, 0)
+      
+    ];
+  
+    pipePositions.forEach(position => {
+      const pipe = new Pipe(position);
+      this.pipes.push(pipe);
+      this.scene.add(pipe.mesh);
+    });
 
-
+    const blockInstances = [];
     const blockPositions = [
-      { pos: new THREE.Vector3(2.5, 2, 0), isQuestion: true }, // はてなブロック
+      { pos: new THREE.Vector3(2.5, 2.25, 0), isQuestion: true }, // はてなブロック
 
-      { pos: new THREE.Vector3(5, 2, 0), isQuestion: false },
-      { pos: new THREE.Vector3(5.5, 2, 0), isQuestion: true }, // はてなブロック
-      { pos: new THREE.Vector3(6, 2, 0), isQuestion: false },
-      { pos: new THREE.Vector3(6.5, 2, 0), isQuestion: true },  // はてなブロック
-      { pos: new THREE.Vector3(7, 2, 0), isQuestion: false },
+      { pos: new THREE.Vector3(5, 2.25, 0), isQuestion: false },
+      { pos: new THREE.Vector3(5.5, 2.25, 0), isQuestion: true }, // はてなブロック
+      { pos: new THREE.Vector3(6, 2.25, 0), isQuestion: false },
+      { pos: new THREE.Vector3(6.5, 2.25, 0), isQuestion: true },  // はてなブロック
+      { pos: new THREE.Vector3(7, 2.25, 0), isQuestion: false },
 
-      { pos: new THREE.Vector3(6, 4, 0), isQuestion: true },  // はてなブロック
+      { pos: new THREE.Vector3(6, 4.25, 0), isQuestion: true },  // はてなブロック
+
+      { pos: new THREE.Vector3(10, 0.25, 0), isQuestion: false },
+      { pos: new THREE.Vector3(10.5, 0.25, 0), isQuestion: false },
+      { pos: new THREE.Vector3(11, 0.25, 0), isQuestion: false },
+
+      { pos: new THREE.Vector3(10.5, 0.75, 0), isQuestion: false },
+      { pos: new THREE.Vector3(11, 0.75, 0), isQuestion: false },
+
+      { pos: new THREE.Vector3(11, 1.25, 0), isQuestion: false },
+
+      { pos: new THREE.Vector3(13, 0.25, 0), isQuestion: false },
+      { pos: new THREE.Vector3(13.5, 0.25, 0), isQuestion: false },
+      { pos: new THREE.Vector3(14, 0.25, 0), isQuestion: false },
+
+      { pos: new THREE.Vector3(13, 0.75, 0), isQuestion: false },
+      { pos: new THREE.Vector3(13.5, 0.75, 0), isQuestion: false },
+
+      { pos: new THREE.Vector3(13, 1.25, 0), isQuestion: false },
+
+      { pos: new THREE.Vector3(18.5, 2.25, 0), isQuestion: false },
+      { pos: new THREE.Vector3(19, 2.25, 0), isQuestion: false },
+      { pos: new THREE.Vector3(19.5, 2.25, 0), isQuestion: false },
+      { pos: new THREE.Vector3(20, 2.25, 0), isQuestion: false },
+      { pos: new THREE.Vector3(20.5, 2.25, 0), isQuestion: false },
+      { pos: new THREE.Vector3(21, 2.25, 0), isQuestion: false },
+      { pos: new THREE.Vector3(21.5, 2.25, 0), isQuestion: false },
+      { pos: new THREE.Vector3(22, 2.25, 0), isQuestion: false },
+
+      { pos: new THREE.Vector3(25, 0.25, 0), isQuestion: false },
+      { pos: new THREE.Vector3(25.5, 0.25, 0), isQuestion: false },
+      { pos: new THREE.Vector3(26, 0.25, 0), isQuestion: false },
+      { pos: new THREE.Vector3(26.5, 0.25, 0), isQuestion: false },
+      { pos: new THREE.Vector3(27, 0.25, 0), isQuestion: false },
+      { pos: new THREE.Vector3(27.5, 0.25, 0), isQuestion: false },
+      { pos: new THREE.Vector3(28, 0.25, 0), isQuestion: false },
+      { pos: new THREE.Vector3(28.5, 0.25, 0), isQuestion: false },
+
+      { pos: new THREE.Vector3(25.5, 0.75, 0), isQuestion: false },
+      { pos: new THREE.Vector3(26, 0.75, 0), isQuestion: false },
+      { pos: new THREE.Vector3(26.5, 0.75, 0), isQuestion: false },
+      { pos: new THREE.Vector3(27, 0.75, 0), isQuestion: false },
+      { pos: new THREE.Vector3(27.5, 0.75, 0), isQuestion: false },
+      { pos: new THREE.Vector3(28, 0.75, 0), isQuestion: false },
+      { pos: new THREE.Vector3(28.5, 0.75, 0), isQuestion: false },
+
+      { pos: new THREE.Vector3(26, 1.25, 0), isQuestion: false },
+      { pos: new THREE.Vector3(26.5, 1.25, 0), isQuestion: false },
+      { pos: new THREE.Vector3(27, 1.25, 0), isQuestion: false },
+      { pos: new THREE.Vector3(27.5, 1.25, 0), isQuestion: false },
+      { pos: new THREE.Vector3(28, 1.25, 0), isQuestion: false },
+      { pos: new THREE.Vector3(28.5, 1.25, 0), isQuestion: false },
+
+      { pos: new THREE.Vector3(26.5, 1.75, 0), isQuestion: false },
+      { pos: new THREE.Vector3(27, 1.75, 0), isQuestion: false },
+      { pos: new THREE.Vector3(27.5, 1.75, 0), isQuestion: false },
+      { pos: new THREE.Vector3(28, 1.75, 0), isQuestion: false },
+      { pos: new THREE.Vector3(28.5, 1.75, 0), isQuestion: false },
+      
+      { pos: new THREE.Vector3(27, 2.25, 0), isQuestion: false },
+      { pos: new THREE.Vector3(27.5, 2.25, 0), isQuestion: false },
+      { pos: new THREE.Vector3(28, 2.25, 0), isQuestion: false },
+      { pos: new THREE.Vector3(28.5, 2.25, 0), isQuestion: false },
+
+      { pos: new THREE.Vector3(27.5, 2.75, 0), isQuestion: false },
+      { pos: new THREE.Vector3(28, 2.75, 0), isQuestion: false },
+      { pos: new THREE.Vector3(28.5, 2.75, 0), isQuestion: false },
+
+      { pos: new THREE.Vector3(28, 3.25, 0), isQuestion: false },
+      { pos: new THREE.Vector3(28.5, 3.25, 0), isQuestion: false },
+
+      { pos: new THREE.Vector3(28.5, 3.75, 0), isQuestion: false },
+
+
     ];
     blockPositions.forEach(({ pos, isQuestion }) => {
       const block = new Block(pos, isQuestion);
       this.blocks.push(block);
       this.scene.add(block.mesh);
     })
+
+    this.scene.add(...blockInstances);
   }
+  
 
 
   update() {
@@ -399,7 +505,7 @@ class Game {
   updateUI() {
     // UIの設定はここ
     this.uiContainer.innerHTML = `
-        <div>MARIO<br>${this.score}</div>
+        <div>Your<br>${this.score}</div>
         <div><br>COINS: ${this.world.coins.length}</div>
         <div>WORLD<br>1-1</div>
         <div>TIME<br>${this.timeLeft}</div>`;
@@ -407,7 +513,7 @@ class Game {
     switch (this.state) {
       case GameState.START:
         this.menuContainer.innerHTML = `
-                    <h1>Super Mario Clone</h1>
+                    <h1>Super adventure</h1>
                     <p>スペースキーでスタート</p>
                     <p>←→: 移動<br>スペース: ジャンプ</p>
                 `;
@@ -491,50 +597,72 @@ class Game {
       }
     });
 
-    // ブロックとの衝突判定
-    this.world.blocks.forEach(block => {
-      if (!block.broken || block.isQuestionBlock) {
-        const blockBox = new THREE.Box3().setFromObject(block.mesh);
-        const marioBox = new THREE.Box3().setFromObject(this.mario.mesh);
+    // ブロックとの衝突判定（優先度高）
+  let blockCollisionOccurred = false;
+  this.world.blocks.forEach(block => {
+    if (!block.broken || block.isQuestionBlock) {
+      const blockBox = new THREE.Box3().setFromObject(block.mesh);
+      const marioBox = new THREE.Box3().setFromObject(this.mario.mesh);
 
-        if (blockBox.intersectsBox(marioBox)) {
+      if (blockBox.intersectsBox(marioBox)) {
+        blockCollisionOccurred = true;
+        const marioPos = this.mario.mesh.position;
+        const blockPos = block.mesh.position;
+
+        // 上下の衝突判定を優先
+        if (this.mario.velocity.y < 0 && marioPos.y > blockPos.y) {
           // 上からの衝突
-          if (this.mario.velocity.y < 0 &&
-            this.mario.mesh.position.y > block.mesh.position.y) {
-            this.mario.mesh.position.y = block.mesh.position.y +
-              PARAMS.sizes.block.size + PARAMS.sizes.mario.height / 5;
-            this.mario.velocity.y = 0;
-            this.mario.isJumping = false;
-          }
+          marioPos.y = blockPos.y + PARAMS.sizes.block.size + PARAMS.sizes.mario.height / 5;
+          this.mario.velocity.y = 0;
+          this.mario.isJumping = false;
+        } else if (this.mario.velocity.y > 0 && marioPos.y < blockPos.y) {
           // 下からの衝突
-          else if (this.mario.velocity.y > 0 && 
-            this.mario.mesh.position.y < block.mesh.position.y) {
-            if (block.isQuestionBlock && block.hasItem) {
-                this.score += 100;
-            } else if (!block.isQuestionBlock) {
-                this.score += 50;
-            }
-            block.break();
-            this.mario.velocity.y = 0;
+          if (block.isQuestionBlock && block.hasItem) {
+            this.score += 100;
+          } else if (!block.isQuestionBlock) {
+            this.score += 50;
           }
+          block.break();
+          this.mario.velocity.y = 0;
+        } else if (Math.abs(marioPos.y - blockPos.y) < PARAMS.sizes.block.size / 1.5) {
           // 横からの衝突
-          else if (Math.abs(this.mario.mesh.position.y - block.mesh.position.y) <
-            PARAMS.sizes.block.size) {
-            if (this.mario.mesh.position.x < block.mesh.position.x) {
-              this.mario.mesh.position.x = block.mesh.position.x -
-                PARAMS.sizes.block.size - PARAMS.sizes.mario.width / 6;
-            } else {
-              this.mario.mesh.position.x = block.mesh.position.x +
-                PARAMS.sizes.block.size + PARAMS.sizes.mario.width / 6;
-            }
-            this.mario.velocity.x = 0;
-          }
+          const fromLeft = marioPos.x < blockPos.x;
+          marioPos.x = blockPos.x + (fromLeft ? -1 : 1) * 
+            (PARAMS.sizes.block.size + PARAMS.sizes.mario.width / 100);
+          this.mario.velocity.x = 0;
+        }
+        this.updateUI();
+      }
+    }
+  });
+
+  // パイプとの衝突判定（ブロックとの衝突がない場合のみ処理）
+  if (!blockCollisionOccurred) {
+    this.world.pipes.forEach(pipe => {
+      const pipeBox = new THREE.Box3().setFromObject(pipe.mesh);
+      const marioBox = new THREE.Box3().setFromObject(this.mario.mesh);
+
+      if (pipeBox.intersectsBox(marioBox)) {
+        const marioPos = this.mario.mesh.position;
+        const pipePos = pipe.mesh.position;
+
+        // 上からの衝突を優先
+        if (this.mario.velocity.y < 0 && 
+            marioPos.y > pipePos.y + PARAMS.sizes.pipe.height) {
+          marioPos.y = pipePos.y + PARAMS.sizes.pipe.height + 
+            PARAMS.sizes.mario.height / 2;
+          this.mario.velocity.y = 0;
+          this.mario.isJumping = false;
+        } else {
+          // 横からの衝突
+          const fromLeft = marioPos.x < pipePos.x;
+          const offset = PARAMS.sizes.pipe.width / 2 + PARAMS.sizes.mario.width / 2;
+          marioPos.x = pipePos.x + (fromLeft ? -offset : offset);
+          this.mario.velocity.x = 0;
         }
       }
     });
-
-
-
+  }
 
 
     // ゴールとの衝突判定
